@@ -1,0 +1,132 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KZN Fishing Conditions</title><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#06151d"><link rel="icon" href="icon.svg">
+<style>
+:root{--bg:#06151d;--card:#0d2430;--line:#1b3a49;--tx:#e6f1ef;--mu:#8fb0b8;--ac:#2fb8a6;--am:#e8b86a;--co:#e5654f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom))}
+header{padding:12px 14px;display:flex;gap:8px;align-items:center;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
+select,input,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px}
+button{cursor:pointer}button.p{background:var(--ac);color:#04231f;border-color:var(--ac);font-weight:700}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--am)}
+header select{flex:1;min-width:0}main{padding:12px 14px;max-width:720px;margin:auto}
+.days{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px}.days button{flex:0 0 auto;text-align:center;min-width:58px}.days .on{border-color:var(--ac);background:#0f3a3a}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.big{font:800 72px/1 Georgia,serif}.row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)}.row:last-child{border:0}
+.mu{color:var(--mu)}.g{color:var(--ac)}.a{color:var(--am)}.r{color:var(--co)}.warn{border-left:4px solid var(--co);padding-left:10px;margin:8px 0}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#081d27;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;padding:12px 2px;font-size:12px}nav .on{color:var(--ac);font-weight:700;box-shadow:inset 0 3px var(--ac)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}.sc{overflow-x:auto}
+label{display:block;margin:8px 0 2px;color:var(--mu);font-size:13px}.tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1}.tabs .on{border-color:var(--ac)}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:var(--ac);color:#04231f;padding:8px 14px;border-radius:8px;display:none;z-index:9}
+</style></head><body>
+<header><select id="bs" aria-label="Beach"></select><button id="fav" aria-label="Favourite">☆</button></header>
+<main><div class="days" id="days"></div><div id="v"></div>
+<p class="mu" style="font-size:12px">Fishing score is a guide only — never a guarantee of catches or safety. Data: Open-Meteo (weather &amp; modelled marine data, CC BY 4.0).</p></main>
+<nav id="nav"></nav><div id="toast"></div>
+<script>
+const VER='1.0.0',TZ='Africa/Johannesburg',DIR=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+// name|region|lat|lon|facing° (direction the sea lies in). Coordinates approximate - verify & edit before relying on them.
+const BL=`Amanzimtoti|Durban area|-30.049|30.891|95;Warner Beach|Durban area|-30.070|30.880|95;Winklespruit|Durban area|-30.100|30.860|95;Umkomaas|Durban area|-30.204|30.800|100;Scottburgh|Durban area|-30.290|30.755|100;Pennington|Durban area|-30.375|30.693|100;Park Rynie|Durban area|-30.330|30.730|100;Umhlanga|Durban area|-29.727|31.086|90;Umdloti|Durban area|-29.655|31.123|90;Westbrook|Durban area|-29.598|31.157|90;Ballito|Durban area|-29.539|31.214|90;Salt Rock|Durban area|-29.490|31.230|90;Sheffield Beach|Durban area|-29.510|31.230|90;Zinkwazi|Durban area|-29.283|31.443|90;Hibberdene|South Coast|-30.540|30.580|105;Port Shepstone|South Coast|-30.740|30.464|105;Uvongo|South Coast|-30.833|30.391|105;Margate|South Coast|-30.860|30.372|105;Ramsgate|South Coast|-30.880|30.350|105;Southbroom|South Coast|-30.915|30.310|105;Trafalgar|South Coast|-30.950|30.295|105;Port Edward|South Coast|-31.050|30.230|105;Tinley Manor|North Coast|-29.380|31.280|90;Blythedale Beach|North Coast|-29.263|31.398|90;Mtunzini|North Coast|-28.950|31.760|85;Richards Bay|North Coast|-28.780|32.100|85;Sodwana Bay|North Coast|-27.540|32.680|85`.split(';').map((s,i)=>{const p=s.split('|');return{id:'b'+i,name:p[0],reg:p[1],lat:+p[2],lon:+p[3],face:+p[4]}});
+const DS={wind:20,swell:1.8,h1:5,h2:18,tide:'any',w:{swell:30,wind:25,wdir:15,sdir:10,tide:10,rain:10},fav:[],def:'b0',dur:7};
+let S=Object.assign({},DS,JSON.parse(localStorage.getItem('kzn')||'{}')),beach=BL.find(b=>b.id===S.def)||BL[0],day=0,tab='Dashboard',ptab='General',D=null,CMP=null,ip=null;
+const save=()=>localStorage.setItem('kzn',JSON.stringify(S)),$=id=>document.getElementById(id);
+const toast=m=>{const t=$('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2800)};
+const lin=(x,p)=>{if(x<=p[0][0])return p[0][1];for(let i=1;i<p.length;i++)if(x<=p[i][0]){const[a,b]=p[i-1],[c,d]=p[i];return b+(d-b)*(x-a)/(c-a)}return p[p.length-1][1]};
+const ang=(a,b)=>{const d=Math.abs(a-b)%360;return d>180?360-d:d},cp=d=>d==null?'N/A':DIR[Math.round(d/22.5)%16],f=(v,u='',n=1)=>v==null?'N/A':(+v).toFixed(n)+u;
+const arrow=d=>d==null?'':`<span style="display:inline-block;transform:rotate(${d+180}deg)">↑</span>`;
+const rate=s=>s>=85?'Excellent':s>=70?'Very good':s>=55?'Decent':s>=40?'Marginal':s>=20?'Poor':'Very poor',rc=s=>s>=70?'g':s>=40?'a':'r';
+const rel=(wd,face)=>{if(wd==null)return null;const a=ang(wd,face);return a<=50?'onshore':a>=130?'offshore':'cross-shore'};
+// ---- scoring engine ----
+function score(h,pr){const W=S.w,kw=S.wind/20,ks=S.swell/1.8,P={},N=[];
+ if(h.wh!=null)P.swell=lin(h.wh/ks,[[1,100],[1.4,80],[1.8,45],[2.5,10],[3.5,0]]);
+ if(h.ws!=null){let v=lin(h.ws/kw,[[10,100],[15,75],[20,45],[30,8]]);if(h.wg!=null&&h.wg>S.wind*1.6){v-=15;N.push('Strong gusts')}P.wind=Math.max(0,v)}
+ if(h.wd!=null&&h.ws!=null)P.wdir=h.ws<8?100:lin(ang(h.wd,beach.face),[[0,30],[60,65],[120,90],[180,100]]);
+ if(h.wp!=null)P.sdir=lin(h.wp,[[5,45],[8,75],[11,100]]);
+ if(h.stage)P.tide=S.tide==='any'?80:h.stage===S.tide?100:55;
+ if(h.pop!=null){let v=h.pop>=70?20:h.pop>=40?60:100;if(h.rain>1)v=Math.min(v,25);P.rain=v}
+ let t=0,w=0;for(const k in P){t+=P[k]*W[k];w+=W[k]}const all=Object.values(W).reduce((a,b)=>a+b,0);let s=w?t/w:0,cap=null;
+ if(h.wh>S.swell){s=Math.min(s,39);cap='Swell above your limit caps the score'}
+ if(h.ws>S.wind){s=Math.min(s,54);cap=cap||'Wind above your limit caps the score'}
+ let safety='No major hazard flagged by data',sl='g';
+ if(h.wh>2.5||h.wg>45||h.rain>8){safety='CAUTION: heavy surf / gale gusts / storm rain — exposed rocks may be dangerous';sl='r'}else if(h.wh>1.8||h.wg>35){safety='Take care: rough surf or strong gusts';sl='a'}
+ return{s:Math.round(s),conf:Math.round(w/all*100),P,cap,safety,sl}}
+// ---- data ----
+const FQ='temperature_2m,precipitation_probability,precipitation,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m',MQ='wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,sea_level_height_msl';
+async function load(b){const k='c_'+b.id,u=(h,q)=>`https://${h}.open-meteo.com/v1/${h==='api'?'forecast':'marine'}?latitude=${b.lat}&longitude=${b.lon}&hourly=${q}&timezone=${encodeURIComponent(TZ)}&forecast_days=7${h==='api'?'&wind_speed_unit=kmh':''}`;
+ try{const[a,m]=await Promise.all([fetch(u('api',FQ)),fetch(u('marine-api',MQ))].map(p=>p.then(r=>{if(!r.ok)throw Error(r.status);return r.json()})));
+  const o={t:Date.now(),a:a.hourly,m:m.hourly,mok:true};localStorage.setItem(k,JSON.stringify(o));return o}catch(e){const c=localStorage.getItem(k);if(c)return Object.assign(JSON.parse(c),{stale:true});throw e}}
+function build(raw){const A=raw.a,M=raw.m,n=A.time.length,H=[];const sl=M.sea_level_height_msl||[];
+ for(let i=0;i<n;i++){const j=M.time.indexOf(A.time[i]),g=(o,k,x)=>o&&o[k]&&x>=0?o[k][x]:null,l=sl[j];
+  const prev=sl[j-1],next=sl[j+1];
+  H.push({time:A.time[i],ts:+A.time[i].slice(11,13),d:A.time[i].slice(0,10),ws:A.wind_speed_10m[i],wg:A.wind_gusts_10m[i],wd:A.wind_direction_10m[i],T:A.temperature_2m[i],pop:A.precipitation_probability[i],rain:A.precipitation[i],cc:A.cloud_cover[i],
+  wh:g(M,'wave_height',j),wdr:g(M,'wave_direction',j),wp:g(M,'wave_period',j),sh:g(M,'swell_wave_height',j),sdr:g(M,'swell_wave_direction',j),sp:g(M,'swell_wave_period',j),ww:g(M,'wind_wave_height',j),lvl:l,
+  stage:prev!=null&&next!=null&&l!=null?(next>prev?'rising':'falling'):null});}
+ H.forEach(h=>h.sc=score(h));return H}
+const days=H=>[...new Set(H.map(h=>h.d))].slice(0,S.dur);
+function dsum(H,d){const hs=H.filter(h=>h.d===d),pw=hs.filter(h=>h.ts>=S.h1&&h.ts<=S.h2);if(pw.length<3)return null;let best=null;
+ for(let i=0;i+2<pw.length;i++){const a=(pw[i].sc.s+pw[i+1].sc.s+pw[i+2].sc.s)/3;if(!best||a>best.s)best={s:Math.round(a),i}}
+ const w=pw.slice(best.i,best.i+3),x=hs.map(h=>h.ws).filter(v=>v!=null),tide=tideX(hs);
+ return{d,hs,best:{s:best.s,from:w[0].ts,to:w[2].ts+1,h:w},avgW:x.reduce((a,b)=>a+b,0)/x.length,maxW:Math.max(...x),maxG:Math.max(...hs.map(h=>h.wg||0)),maxS:Math.max(...hs.map(h=>h.wh??-1)),pop:Math.max(...hs.map(h=>h.pop||0)),conf:Math.min(...w.map(h=>h.sc.conf)),tide,why:why(w[1])}}
+function tideX(hs){const o=[];for(let i=1;i<hs.length-1;i++){const a=hs[i-1].lvl,b=hs[i].lvl,c=hs[i+1].lvl;if(a==null||b==null||c==null)continue;if(b>=a&&b>c)o.push({k:'High',h:hs[i]});if(b<=a&&b<c)o.push({k:'Low',h:hs[i]})}return o}
+function why(h){const r=[],P=h.sc.P,t=[];if(P.swell!=null)t.push([P.swell,P.swell>=70?`Swell ${f(h.wh,' m')} is workable`:`Swell ${f(h.wh,' m')} is rough for fishing`]);
+ if(P.wind!=null)t.push([P.wind,P.wind>=70?`Wind ${f(h.ws,' km/h',0)} is light`:`Wind ${f(h.ws,' km/h',0)} is strong`]);
+ if(P.wdir!=null)t.push([P.wdir,`Wind is ${rel(h.wd,beach.face)} here`]);if(P.rain!=null&&P.rain<60)t.push([P.rain,'Rain risk']);
+ if(P.tide!=null&&S.tide!=='any')t.push([P.tide,P.tide>=100?`Tide is ${h.stage} (your preference)`:`Tide is ${h.stage}, not your preferred stage`]);
+ return t.map(([v,s])=>`${v>=70?'✔':'✖'} ${s}`)}
+// ---- views ----
+const hh=n=>String(n).padStart(2,'0')+':00',dl=d=>new Date(d+'T12:00:00').toLocaleDateString('en-ZA',{weekday:'short',day:'numeric'});
+function alerts(ds){const a=[],t=ds[day],n=ds[day+1];if(n&&t&&n.best.s>=t.best.s+10)a.push('Tomorrow looks better than this day.');
+ const hi=t&&t.hs.find(h=>h.ts>t.best.to&&h.ts<=S.h2&&h.ws>S.wind);if(hi)a.push(`Wind expected to exceed your limit after ${hh(hi.ts)}.`);
+ if(t&&t.maxS>S.swell)a.push('Swell may exceed your configured limit.');return a}
+function patterns(ds){const o=[],c=ds.map(d=>{let x=0,y=0;d.hs.filter(h=>h.ts>=S.h1&&h.ts<=S.h2&&h.wd!=null).forEach(h=>{x+=h.ws*Math.sin(h.wd*Math.PI/180);y+=h.ws*Math.cos(h.wd*Math.PI/180)});const dir=(Math.atan2(x,y)*180/Math.PI+360)%360;return{d:d.d,dir,k:rel(dir,beach.face),sp:d.avgW}});
+ for(let i=1;i<c.length;i++)if(ang(c[i].dir,c[i-1].dir)>=60)o.push(`${dl(c[i-1].d)}→${dl(c[i].d)}: wind turns ${cp(c[i-1].dir)} → ${cp(c[i].dir)} (${c[i-1].k} → ${c[i].k}). Check swell and strength before calling it a window.`);
+ return{o,c}}
+function shareText(s,url){const t=s.best,m=s.hs.find(h=>h.ts===t.from+1)||s.hs[0],tides=s.tide.map(x=>`${x.k} ${x.h.time.slice(11,16)}`).join(', ')||'N/A';
+ return `🎣 *${beach.name}* — ${dl(s.d)}\n*Fishing score: ${t.s}/100 (${rate(t.s)})*\n⏰ Best window: ${hh(t.from)}–${hh(t.to)}\n🌊 Swell: ${f(m.wh,' m')} @ ${f(m.wp,' s',0)} from ${cp(m.wdr)}\n💨 Wind: ${f(m.ws,' km/h',0)} ${cp(m.wd)} (${rel(m.wd,beach.face)||'N/A'}), gusts ${f(s.maxG,' km/h',0)} max\n🌡 ${f(m.T,'°C',0)} · 🌧 Rain chance ${s.pop}%\n🌗 Tides (modelled): ${tides}\n${s.why.join('\n')}\n⚠ ${m.sc.safety}\nConfidence: ${t.conf??s.conf}%\n${url}`}
+const share=s=>window.open('https://wa.me/?text='+encodeURIComponent(shareText(s,location.href.split('#')[0])),'_blank');
+function dash(ds,raw){const s=ds[day];if(!s)return'<div class="card">No data for this day.</div>';const b=s.best,c=day===0?(s.hs.find(h=>h.ts===+new Date().toLocaleString('en-GB',{timeZone:TZ,hour:'2-digit',hour12:false}))||s.hs[0]):s.best.h[1];
+ const al=alerts(ds).map(x=>`<div class="a">⚑ ${x}</div>`).join('');
+ return`<div class="card"><div class="mu">${beach.name} · ${dl(s.d)}</div><div class="big ${rc(b.s)}">${b.s}</div><b>${rate(b.s)}</b> <span class="mu">best window ${hh(b.from)}–${hh(b.to)} · confidence ${b.conf}%</span>
+ <div class="warn" style="border-color:var(--${c.sc.sl==='g'?'ac':c.sc.sl==='a'?'am':'co'})"><b>Safety (separate from score):</b> ${c.sc.safety}</div>${c.sc.cap?`<div class="a">⚠ ${c.sc.cap}</div>`:''}${al}
+ <div style="margin:8px 0">${s.why.map(x=>`<div>${x}</div>`).join('')}</div><button class="p" onclick="share(DS_[${day}])">Share on WhatsApp</button></div>
+ <div class="card"><b>${day===0?'Now':'Mid-window'} (${hh(c.ts)}, forecast)</b>${[['Wind',`${arrow(c.wd)} ${f(c.ws,' km/h',0)} ${cp(c.wd)} (${rel(c.wd,beach.face)||'N/A'}), gusts ${f(c.wg,' km/h',0)}`],['Sig. wave height',f(c.wh,' m')],['Swell (primary)',`${f(c.sh,' m')} @ ${f(c.sp,' s',0)} from ${cp(c.sdr)}`],['Wind-wave height',f(c.ww,' m')],['Air temp',f(c.T,'°C',0)],['Rain',`${c.pop??'N/A'}% · ${f(c.rain,' mm')}`],['Cloud',f(c.cc,'%',0)]].map(([a,x])=>`<div class="row"><span class="mu">${a}</span><span>${x}</span></div>`).join('')}</div>${provs(c,raw)}`}
+function provs(c,raw){const age=Math.round((Date.now()-raw.t)/60000),gen=`<div class="row"><span>Status</span><span class="g">Connected${raw.stale?' (offline cache)':''}</span></div><div class="row"><span>Source</span><span>Open-Meteo forecast + marine models</span></div><div class="row"><span>Type</span><span>Forecast (not observation)</span></div><div class="row"><span>Updated</span><span>${age} min ago</span></div><div class="row"><span>Horizon</span><span>7 days</span></div>`,
+ nc=n=>`<div class="row"><span>Status</span><span class="a">Not connected</span></div><p class="mu">${n} has no public, browser-safe API that permits republishing its forecast. Scraping or embedding it would break its terms. Use the official link below, or add a licensed server-side adapter (needs credentials; a GitHub Pages site cannot hold secret keys).</p>`;
+ const na='<td class="mu">N/A</td>',g=[f(c.ws,'',0),f(c.wg,'',0),cp(c.wd),f(c.sh,' m'),f(c.sp,' s',0),f(c.T,'°',0),f(c.rain,' mm')];
+ const body=ptab==='General'?gen:ptab==='Windguru'?nc('Windguru')+`<a class="g" href="https://www.windguru.cz/" target="_blank" rel="noopener">Open Windguru</a>`:nc('Windfinder')+`<a class="g" href="https://www.windfinder.com/" target="_blank" rel="noopener">Open Windfinder</a>`;
+ return`<div class="card"><div class="tabs">${['Windguru','Windfinder','General'].map(p=>`<button class="${p===ptab?'on':''}" onclick="ptab='${p}';go()">${p}</button>`).join('')}</div>${body}
+ <div class="sc"><table><tr><th>Metric</th><th>Windguru</th><th>Windfinder</th><th>General</th></tr>${['Wind km/h','Gusts km/h','Wind dir','Swell','Period','Temp','Rain'].map((m,i)=>`<tr><td>${m}</td>${na}${na}<td>${g[i]}</td></tr>`).join('')}</table></div></div>`}
+function fc(ds){const p=patterns(ds);return ds.map((s,i)=>`<div class="card" onclick="day=${i};tab='Dashboard';go()" style="cursor:pointer"><div class="row" style="border:0"><b>${dl(s.d)}</b><b class="${rc(s.best.s)}">${s.best.s} · ${rate(s.best.s)}</b></div>
+ <div class="mu">Best ${hh(s.best.from)}–${hh(s.best.to)} · wind ${f(s.avgW,'',0)} avg / ${f(s.maxW,'',0)} max, gusts ${f(s.maxG,'',0)} km/h · swell ${s.maxS<0?'N/A':f(s.maxS,' m')} max · rain ${s.pop}% · confidence ${s.conf}%</div></div>`).join('')
+ +`<div class="card"><b>Wind timeline &amp; pattern insights</b><div class="sc"><table><tr>${p.c.map(c=>`<td>${dl(c.d)}<br>${arrow(c.dir)} ${cp(c.dir)}<br><span class="mu">${f(c.sp,'',0)} km/h<br>${c.k}</span></td>`).join('')}</tr></table></div>${p.o.length?p.o.map(x=>`<p>${x}</p>`).join(''):'<p class="mu">No significant wind shifts in this period.</p>'}</div>`}
+function tides(ds){const s=ds[day];if(!s)return'';const pts=s.hs.filter(h=>h.lvl!=null);if(!pts.length)return'<div class="card">No tide data.</div>';const mn=Math.min(...pts.map(h=>h.lvl)),mx=Math.max(...pts.map(h=>h.lvl));
+ const pl=pts.map(h=>`${h.ts*12+10},${100-(h.lvl-mn)/(mx-mn||1)*80}`).join(' ');
+ return`<div class="card"><b>Tide — ${dl(s.d)}</b><svg viewBox="0 0 300 110" width="100%" role="img" aria-label="Tide height graph"><polyline points="${pl}" fill="none" stroke="#2fb8a6" stroke-width="2"/></svg><div class="mu" style="display:flex;justify-content:space-between"><span>00:00</span><span>12:00</span><span>24:00</span></div>
+ ${s.tide.map(x=>`<div class="row"><span>${x.k}</span><span>${x.h.time.slice(11,16)} · ${f(x.h.lvl,' m',2)}</span></div>`).join('')}
+ <p class="mu">Modelled sea level (Open-Meteo, ~8 km grid, includes tides) at the nearest ocean point — an approximation, <b>not</b> official station predictions. Times are to the nearest hour. For fishing decisions confirm with SA Navy Hydrographic Office tables.</p></div>`}
+async function cmp(){const bs=(S.fav.length?S.fav:BL.slice(0,6).map(b=>b.id)).map(i=>BL.find(b=>b.id===i)).slice(0,8);
+ const r=await Promise.all(bs.map(async b=>{try{const raw=await load(b),sv=beach;beach=b;const H=build(raw),s=dsum(H,days(H)[day]);beach=sv;return{b,s}}catch{return{b,s:null}}}));CMP=r}
+function cmpv(){if(!CMP)return'<div class="card mu">Comparing beaches…</div>';const r=[...CMP].sort((a,b)=>(b.s?.best.s??-1)-(a.s?.best.s??-1));
+ return`<div class="card sc"><b>Beaches ranked for ${dl(days(D)[day])}</b> <span class="mu">(${S.fav.length?'your favourites':'first 6 — star beaches to choose your own'})</span><table><tr><th>Beach</th><th>Score</th><th>Swell</th><th>Wind</th><th>Window</th><th>Conf.</th></tr>${r.map(({b,s})=>s?`<tr><td>${b.name}</td><td class="${rc(s.best.s)}"><b>${s.best.s}</b></td><td>${f(s.best.h[1].wh,' m')}</td><td>${f(s.best.h[1].ws,'',0)} ${cp(s.best.h[1].wd)}</td><td>${hh(s.best.from).slice(0,2)}–${hh(s.best.to).slice(0,2)}</td><td>${s.best.conf}%</td></tr>`:`<tr><td>${b.name}</td><td colspan="5" class="r">No data</td></tr>`).join('')}</table><p class="mu">Beaches with missing data are ranked last, never first.</p></div>`}
+function sets(){const w=S.w;return`<div class="card"><label>Wind limit (km/h)</label><input id="s_wind" type="number" value="${S.wind}"><label>Swell limit (m)</label><input id="s_swell" type="number" step=".1" value="${S.swell}">
+ <label>Fishing hours from / to</label><input id="s_h1" type="number" value="${S.h1}" style="width:80px"> <input id="s_h2" type="number" value="${S.h2}" style="width:80px">
+ <label>Preferred tide stage</label><select id="s_tide">${['any','rising','falling'].map(t=>`<option ${S.tide===t?'selected':''}>${t}</option>`).join('')}</select>
+ <label>Forecast days (3-7)</label><input id="s_dur" type="number" min="3" max="7" value="${S.dur}"><label>Score weights (swell, wind, wind direction, swell period, tide, weather)</label>
+ ${Object.keys(w).map(k=>`<input id="w_${k}" type="number" value="${w[k]}" style="width:60px" title="${k}">`).join(' ')}<p><button class="p" onclick="sv()">Save</button> <button onclick="S=Object.assign({},DS);save();go(1)">Reset</button></p></div>
+ <div class="card"><b>App</b><p class="mu">Version ${VER}</p><button id="ib" class="p" style="display:none" onclick="inst()">Install app</button> <button onclick="upd()">Check for update</button><p class="mu" id="ios"></p></div>`}
+function sv(){S.wind=+$('s_wind').value;S.swell=+$('s_swell').value;S.h1=+$('s_h1').value;S.h2=+$('s_h2').value;S.tide=$('s_tide').value;S.dur=Math.min(7,Math.max(3,+$('s_dur').value));for(const k in S.w)S.w[k]=+$('w_'+k).value;save();toast('Saved');go(1)}
+async function inst(){if(!ip)return;ip.prompt();await ip.userChoice;ip=null;$('ib').style.display='none'}
+async function upd(){const r=await navigator.serviceWorker?.getRegistration();if(!r)return toast('Updates work once installed from the web');await r.update();const w=r.installing||r.waiting;if(!w)return toast('You have the latest version');const go=()=>w.postMessage('skip');w.state==='installed'?go():w.addEventListener('statechange',()=>w.state==='installed'&&go());toast('Updating…')}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();ip=e;const b=$('ib');if(b)b.style.display='inline-block'});
+let DS_=[];
+function go(re){const ds=D?days(D.H).map(d=>dsum(D.H,d)).filter(Boolean):[];DS_=ds;
+ $('days').innerHTML=ds.map((s,i)=>`<button class="${i===day?'on':''}" onclick="day=${i};CMP=null;go()">${dl(s.d)}<br><b class="${rc(s.best.s)}">${s.best.s}</b></button>`).join('');
+ $('v').innerHTML=!D?'<div class="card mu">Loading forecast…</div>':tab==='Dashboard'?dash(ds,D.raw)+(D.raw.stale?'<div class="a">Offline: showing last saved data.</div>':''):tab==='Forecast'?fc(ds):tab==='Compare'?cmpv():tab==='Tides'?tides(ds):sets();
+ $('nav').innerHTML=['Dashboard','Forecast','Compare','Tides','Settings'].map(t=>`<button class="${t===tab?'on':''}" onclick="tab='${t}';go();if(tab==='Compare'&&!CMP)cmp().then(go)">${t}</button>`).join('');
+ $('fav').textContent=S.fav.includes(beach.id)?'★':'☆';
+ if(tab==='Settings'){$('ios').textContent=/iphone|ipad/i.test(navigator.userAgent)?'On iPhone: tap Share → Add to Home Screen.':'';if(ip)$('ib').style.display='inline-block'}}
+async function refresh(){D=null;go();try{const raw=await load(beach);D={raw,H:build(raw)};if(day>=days(D.H).length)day=0}catch(e){$('v').innerHTML=`<div class="card r">Could not load data (${e.message}). Check your connection and try again. <button onclick="refresh()">Retry</button></div>`;return}go()}
+$('bs').innerHTML=[...new Set(BL.map(b=>b.reg))].map(r=>`<optgroup label="${r}">${BL.filter(b=>b.reg===r).map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}</optgroup>`).join('');$('bs').value=beach.id;
+$('bs').onchange=e=>{beach=BL.find(b=>b.id===e.target.value);S.def=beach.id;save();CMP=null;refresh()};
+$('fav').onclick=()=>{const i=S.fav.indexOf(beach.id);i<0?S.fav.push(beach.id):S.fav.splice(i,1);save();CMP=null;go()};
+if('serviceWorker'in navigator){const had=!!navigator.serviceWorker.controller;navigator.serviceWorker.register('sw.js');navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had)location.reload()})}
+refresh();setInterval(()=>{if(!document.hidden)refresh()},30*60000);
+</script></body></html>
